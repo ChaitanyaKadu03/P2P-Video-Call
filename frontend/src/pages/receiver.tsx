@@ -1,60 +1,53 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 const Receiver = () => {
-    const [pc, setPc] = useState<RTCPeerConnection | null>(null);
+  const [pc,] = useState<RTCPeerConnection>(new RTCPeerConnection);
+  const [socket,] = useState<WebSocket>(new WebSocket("ws://localhost:8080"));
 
-    useEffect(() => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
-        const socket = new WebSocket('ws://localhost:8080');
+  useEffect(() => {
 
-        socket.onopen = () => {
-            socket.send(JSON.stringify({ type: "identify-as-receiver" }))
-        }
+    socket?.send(JSON.stringify({ type: "identify-as-receiver" }));
 
-        socket.onmessage = async (event) => {
-            const message = JSON.parse(event.data);
-            console.log(message);
+    socket.onmessage = async (event) => {
+      const message = JSON.parse(event.data);
 
-            if (message.type === "offer") {
-                console.log(message);
+      if (message.type == "create-offer") {
+        pc.setRemoteDescription(message.offer);
 
-                const pc = new RTCPeerConnection();
+        const answer = await pc.createAnswer();
 
-                setPc(pc)
+        pc.setRemoteDescription(answer);
 
-                pc.setRemoteDescription(message.offer);
+        socket.send(JSON.stringify({ type: "answer", sdp: answer }))
 
-                pc.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        socket?.send(JSON.stringify({ type: "iceCandidate", candidate: event.candidate }))
-                    }
-                }
+        pc.ontrack = (event: RTCTrackEvent) => {
+          if (videoRef.current) {
+              videoRef.current.srcObject = event.streams[0]; // Use the first MediaStream.
+              videoRef.current.play();
+          }
+      };
 
-                const video = document.createElement('video');
-                document.body.appendChild(video);
-        
-                pc.ontrack = (event) => {
-                    video.srcObject = new MediaStream([event.track]);
-                    video.play();
-                }
+      } else if (message.type == "ice-candidate") {
+        pc?.addIceCandidate(message.candidate)
+      }
 
-                const answer = await pc.createAnswer();
+    }
 
-                await pc.setLocalDescription(answer)
+    pc.onicecandidate = (event) => {
+      socket.send(JSON.stringify({ type: "exchange-ice-candidate", candidate: event.candidate }))
+    }
+  }, [])
 
-                socket.send(JSON.stringify({ type: "create-answer", answer: pc.localDescription }))
-            } else if (message.type === "iceCandidate") {
-                pc?.addIceCandidate(message.candidate)
-            }
-        }
 
-    }, [])
 
-    return (
-        <div className="flex flex-row justify-center items-center gap-4">
-            <div>Receiver</div>
-        </div>
-    )
+  return (
+    <div className="flex justify-center items-center h-screen bg-slate-900 text-white">
+      <p>Receiver</p>
+      <video ref={videoRef} className="h-80 w-80" />
+    </div>
+  )
 }
 
 export default Receiver

@@ -1,42 +1,55 @@
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 
-const { WebSocketServer } = require("ws")
+const wss: WebSocketServer = new WebSocketServer({ port: 8080 });
 
-const wss = new WebSocketServer({ port: 8080 });
+let senderServer: WebSocket | null = null;
+let receiverServer: WebSocket | null = null;
 
-let senderSocket: WebSocket | null = null;
-let receiverSocket: WebSocket | null = null;
+wss.on("connection", (ws) => {
+	ws.on("error", console.error);
 
-wss.on("connection", function connection(ws: WebSocket) {
-	ws.on('error', console.error);
+	ws.on("message", async (data) => {
 
-	ws.on('message', function message(data: any) {
-		const message = JSON.parse(data)
+		const message = JSON.parse(data.toString('utf8'));
 
-		if (message.type === "identify-as-sender") {
-			console.log("sender set");
+		console.log(message);
+		
 
-			senderSocket = ws;
-		} else if (message.type === "identify-as-receiver") {
-			console.log("receiver set");
+		switch (message.type) {
+			case "identify-as-sender":
+				console.log("identify-as-sender");
 
-			receiverSocket = ws;
-		} else if (message.type === "create-offer") {
-			console.log("create-offer");
+				senderServer = ws;
+				break;
+			case "identify-as-receiver":
+				console.log("identify-as-receiver");
 
-			receiverSocket?.send(JSON.stringify({ type: "offer", offer: message.offer }));
-		} else if (message.type === "create-answer") {
-			console.log("create-answer");
+				receiverServer = ws;
+				break;
+			case "send-offer":
+				console.log("send-offer");
 
-			senderSocket?.send(JSON.stringify({ type: "answer", answer: message.answer }));
-		} else if (message.type == "iceCandidate") {
-			if (ws === senderSocket) {
-				receiverSocket?.send(JSON.stringify({ type: 'iceCandidate', candidate: message.candidate }));
-			} else if (ws === receiverSocket) {
-				senderSocket?.send(JSON.stringify({ type: 'iceCandidate', candidate: message.candidate }));
-			}
+				receiverServer?.send(JSON.stringify({ type: "offer", sdp: message.offer }));
+				break;
+			case "send-answer":
+				console.log("send-answer");
+
+				receiverServer?.send(JSON.stringify({ type: "answer", sdp: message.answer }));
+				break;
+			case "exchange-ice-candidate":
+				console.log("exchange-ice-candidate");
+
+				if (senderServer == ws) {
+					receiverServer?.send(JSON.stringify({ type: "ice-candidate", iceCandidate: message.iceCandidate }));
+				} else if (receiverServer == ws) {
+					senderServer?.send(JSON.stringify({ type: "ice-candidate", iceCandidate: message.iceCandidate }));
+				}
+				break;
+			default:
+				ws.send(`Type ${message.type} is invalid`)
 		}
 
-		ws.send(data.toString('utf-8'))
 	})
+
+	console.log("Connected!");
 })
